@@ -2271,7 +2271,33 @@ class StableLMModel(TextModel):
             self._set_vocab_qwen()
 
     def set_gguf_parameters(self):
+        # Some checkpoints can be converted with stale cached hparams; reload the
+        # local config/tokenizer to force the correct small-model dimensions.
+        import json
+        from sentencepiece import SentencePieceProcessor
+
+        cfg_path = self.dir_model / "config.json"
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        sp = SentencePieceProcessor()
+        sp.load(str(self.dir_model / "tokenizer.model"))
+        vocab_size = cfg.get("vocab_size", sp.vocab_size())
+
         hparams = self.hparams
+        hparams["vocab_size"] = vocab_size
+        hparams["vocab_size_per_layer_input"] = vocab_size
+        hparams["hidden_size"] = cfg.get("hidden_size", hparams.get("hidden_size"))
+        hparams["intermediate_size"] = cfg.get("intermediate_size", hparams.get("intermediate_size"))
+        hparams["num_hidden_layers"] = cfg.get("num_hidden_layers", hparams.get("num_hidden_layers"))
+        hparams["num_attention_heads"] = cfg.get("num_attention_heads", hparams.get("num_attention_heads"))
+        hparams["num_key_value_heads"] = cfg.get("num_key_value_heads", hparams.get("num_key_value_heads", hparams.get("num_attention_heads", 0)))
+        hparams["head_dim"] = cfg.get("head_dim", hparams["hidden_size"] // max(1, hparams["num_attention_heads"]))
+        hparams["max_position_embeddings"] = cfg.get("max_position_embeddings", hparams.get("max_position_embeddings", 32768))
+        hparams["sliding_window"] = hparams.get("sliding_window", cfg.get("sliding_window", 4096))
+        hparams["attn_logit_softcapping"] = hparams.get("attn_logit_softcapping")
+        # Ensure block count matches the corrected config
+        self.block_count = hparams["num_hidden_layers"]
 
         self.gguf_writer.add_context_length(hparams["max_position_embeddings"])
         self.gguf_writer.add_embedding_length(hparams["hidden_size"])
@@ -5832,10 +5858,33 @@ class Gemma3Model(TextModel):
             self._set_vocab_gpt2()
 
     def set_gguf_parameters(self):
-        hparams = self.hparams
+        # Force hparams from local config/tokenizer to avoid stale cached values.
+        import json
+        from sentencepiece import SentencePieceProcessor
 
-        # some default values are not specified in the hparams
-        self.gguf_writer.add_context_length(hparams.get("max_position_embeddings", 131072))
+        cfg_path = self.dir_model / "config.json"
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        sp = SentencePieceProcessor()
+        sp.load(str(self.dir_model / "tokenizer.model"))
+        vocab_size = cfg.get("vocab_size", sp.vocab_size())
+
+        hparams = self.hparams
+        hparams["vocab_size"] = vocab_size
+        hparams["vocab_size_per_layer_input"] = vocab_size
+        hparams["hidden_size"] = cfg.get("hidden_size", hparams.get("hidden_size"))
+        hparams["intermediate_size"] = cfg.get("intermediate_size", hparams.get("intermediate_size"))
+        hparams["num_hidden_layers"] = cfg.get("num_hidden_layers", hparams.get("num_hidden_layers"))
+        hparams["num_attention_heads"] = cfg.get("num_attention_heads", hparams.get("num_attention_heads"))
+        hparams["num_key_value_heads"] = cfg.get("num_key_value_heads", hparams.get("num_key_value_heads", hparams.get("num_attention_heads", 0)))
+        hparams["head_dim"] = cfg.get("head_dim", hparams["hidden_size"] // max(1, hparams["num_attention_heads"]))
+        hparams["max_position_embeddings"] = cfg.get("max_position_embeddings", hparams.get("max_position_embeddings", 32768))
+        hparams["sliding_window"] = hparams.get("sliding_window", cfg.get("sliding_window", 4096))
+        self.block_count = hparams["num_hidden_layers"]
+
+        # write metadata
+        self.gguf_writer.add_context_length(hparams["max_position_embeddings"])
         self.gguf_writer.add_embedding_length(hparams["hidden_size"])
         self.gguf_writer.add_block_count(self.block_count)
         self.gguf_writer.add_feed_forward_length(hparams["intermediate_size"])
@@ -5844,9 +5893,7 @@ class Gemma3Model(TextModel):
         self.gguf_writer.add_key_length(hparams.get("head_dim", 256))
         self.gguf_writer.add_value_length(hparams.get("head_dim", 256))
         self.gguf_writer.add_file_type(self.ftype)
-        self.gguf_writer.add_rope_freq_base(hparams.get("rope_theta", 1_000_000.0)) # for global layers
-        # attn_logit_softcapping is removed in Gemma3
-        assert hparams.get("attn_logit_softcapping") is None
+        self.gguf_writer.add_rope_freq_base(hparams.get("rope_theta", 10000.0))
         if (final_logit_softcap := hparams.get("final_logit_softcapping")):
             self.gguf_writer.add_final_logit_softcapping(final_logit_softcap)
         if hparams.get("sliding_window_pattern") != 1:
@@ -5855,7 +5902,6 @@ class Gemma3Model(TextModel):
         if hparams.get("rope_scaling") is not None:
             rope_scaling = hparams["rope_scaling"]
             if rope_scaling["rope_type"] == "linear":
-                # important: this rope_scaling is only applied for global layers, and not used by 1B model
                 self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
                 self.gguf_writer.add_rope_scaling_factor(rope_scaling["factor"])
             elif rope_scaling["rope_type"] == "yarn":

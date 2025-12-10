@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+import json
 import logging
 import os
 import pathlib
 import re
+import shutil
+from enum import IntEnum, auto
+from hashlib import sha256
 
 import requests
-import json
-import shutil
-import argparse
-
-from hashlib import sha256
-from enum import IntEnum, auto
 from transformers import AutoTokenizer
 
 logging.basicConfig(level=logging.DEBUG)
@@ -112,6 +111,7 @@ models = [
     {"name": "viking",           "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/LumiOpen/Viking-7B", }, # Also used for Viking 13B and 33B
     {"name": "gemma",            "tokt": TOKENIZER_TYPE.SPM, "repo": "https://huggingface.co/google/gemma-2b", },
     {"name": "gemma-2",          "tokt": TOKENIZER_TYPE.SPM, "repo": "https://huggingface.co/google/gemma-2-9b", },
+    {"name": "gemma3",          "tokt": TOKENIZER_TYPE.SPM, "repo": "https://huggingface.co/google/gemma-3-270m", },
     {"name": "jais",             "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/core42/jais-13b", },
     {"name": "t5",               "tokt": TOKENIZER_TYPE.UGM, "repo": "https://huggingface.co/google-t5/t5-small", },
     {"name": "codeshell",        "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/WisdomShell/CodeShell-7B", },
